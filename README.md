@@ -4,7 +4,7 @@
 
 **E-commerce platform for professional hardware and server solutions.**
 
-A modern marketplace dedicated to computer hardware, components and enterprise server solutions.
+A marketplace dedicated to computer hardware, components and enterprise server solutions.
 Browse products, compare configurations, build custom machines and manage professional equipment through a responsive web application.
 
 [![MongoDB](https://img.shields.io/badge/MongoDB-8-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com/)

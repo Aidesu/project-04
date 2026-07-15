@@ -1,0 +1,28 @@
+[
+    {
+        "id": 1,
+        "brand": "AMD",
+        "model": "Ryzen 7 7800X3D",
+        "socket": "AM5",
+        "cores": 8,
+        "threads": 16,
+        "baseClock": 4.2,
+        "boostClock": 5.0,
+        "tdp": 120,
+        "price": 419.99,
+        "stock": 15
+    },
+    {
+        "id": 2,
+        "brand": "Intel",
+        "model": "Core i7-14700K",
+        "socket": "LGA1700",
+        "cores": 20,
+        "threads": 28,
+        "baseClock": 3.4,
+        "boostClock": 5.6,
+        "tdp": 125,
+        "price": 449.99,
+        "stock": 8
+    }
+]

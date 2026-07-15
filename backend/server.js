@@ -2,12 +2,20 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
+const cpuPath = path.join(__dirname, "data", "cpuData.json");
+const gpuPath = path.join(__dirname, "data", "gpuData.json");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+app.listen(PORT, () => {
+    console.log(`Server listen http://localhost:${PORT}`);
+});
 
 mongoose
     .connect(process.env.MONGO_URI)
@@ -25,6 +33,12 @@ app.get("/api/status", (req, res) => {
     });
 });
 
-app.listen(PORT, () => {
-    console.log(`Server listen http://localhost:${PORT}`);
+app.get("/api/cpu", (req, res) => {
+    const data = JSON.parse(fs.readFileSync(cpuPath, "utf8"));
+    res.json(data);
+});
+
+app.get("/api/gpu", (req, res) => {
+    const data = JSON.parse(fs.readFileSync(gpuPath, "utf-8"));
+    res.json(data);
 });

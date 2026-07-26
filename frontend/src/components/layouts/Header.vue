@@ -12,6 +12,22 @@ const navigation = [
         name: "Products",
         path: "/products",
     },
+    {
+        name: "Servers",
+        path: "/servers",
+    },
+    {
+        name: "Networking",
+        path: "/networking",
+    },
+    {
+        name: "Storage",
+        path: "/storage",
+    },
+    {
+        name: "Support",
+        path: "/support",
+    },
 ];
 </script>
 

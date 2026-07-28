@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 
 import LandingView from "../views/LandingView.vue";
-import ProductsView from "@/views/ProductsView.vue";
+import CategoryView from "@/views/CategoryView.vue";
 
 const router = createRouter({
     history: createWebHistory(),
@@ -13,8 +13,8 @@ const router = createRouter({
         },
         {
             path: "/products",
-            name: "Products",
-            component: ProductsView,
+            name: "Categories",
+            component: CategoryView,
         },
     ],
 });

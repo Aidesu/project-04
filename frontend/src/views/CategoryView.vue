@@ -125,12 +125,18 @@ onMounted(() => {
                     class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
                 >
                     <!-- IMAGE CARD -->
-                    <a
+                    <router-link
                         v-for="category in categories"
                         :key="category._id"
-                        :href="`/products/${category.slug || category._id}`"
+                        :to="`/products/${category.slug || category._id}`"
                         class="group relative h-90 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:shadow-indigo-500/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950 block"
                     >
+                        <div
+                            class="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-110"
+                            :style="{
+                                backgroundImage: `url(${category.image || 'https://via.placeholder.com/800x600?text=No+Image'})`,
+                            }"
+                        ></div>
                         <div
                             class="absolute inset-0 bg-cover bg-center transition-transform duration-700 ease-out group-hover:scale-110"
                             :style="{
@@ -182,7 +188,7 @@ onMounted(() => {
                                 </div>
                             </div>
                         </div>
-                    </a>
+                    </router-link>
                 </div>
             </div>
         </main>

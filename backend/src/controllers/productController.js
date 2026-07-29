@@ -2,7 +2,9 @@ const Product = require("../models/Product");
 
 exports.getProducts = async (req, res) => {
     try {
-        const products = await Product.find();
+        const { category } = req.query;
+        const filter = category ? { category: category } : {};
+        const products = await Product.find(filter);
 
         res.json(products);
     } catch (err) {
@@ -14,7 +16,7 @@ exports.getProducts = async (req, res) => {
 
 exports.getProduct = async (req, res) => {
     try {
-        const product = await Product.findById(req.params.id);
+        const product = await Product.findOne({ slug: req.params.slug });
 
         if (!product) {
             return res.status(404).json({
@@ -42,10 +44,11 @@ exports.createProduct = async (req, res) => {
     }
 };
 
+// PUT /api/products/:slug
 exports.updateProduct = async (req, res) => {
     try {
-        const product = await Product.findByIdAndUpdate(
-            req.params.id,
+        const product = await Product.findOneAndUpdate(
+            { slug: req.params.slug },
             req.body,
             { new: true },
         );
@@ -66,7 +69,9 @@ exports.updateProduct = async (req, res) => {
 
 exports.deleteProduct = async (req, res) => {
     try {
-        const product = await Product.findByIdAndDelete(req.params.id);
+        const product = await Product.findOneAndDelete({
+            slug: req.params.slug,
+        });
 
         if (!product) {
             return res.status(404).json({

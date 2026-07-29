@@ -15,7 +15,10 @@ app.get("/", (req, res) => {
     });
 });
 
+console.log("categoryRoutes =", categoryRoutes);
+console.log("productRoutes =", productRoutes);
+
 app.use("/api/categories", categoryRoutes);
-app.use("api/products", productRoutes);
+app.use("/api/products", productRoutes);
 
 module.exports = app;

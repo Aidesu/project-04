@@ -4,14 +4,19 @@ const router = express.Router();
 
 const productController = require("../controllers/productController");
 
+// GET /api/products
 router.get("/", productController.getProducts);
 
-router.get("/:id", productController.getProduct);
+// GET /api/products/:slug
+router.get("/:slug", productController.getProduct);
 
+// POST /api/products
 router.post("/", productController.createProduct);
 
-router.put("/:id", productController.updateProduct);
+// PUT /api/products/:slug
+router.put("/:slug", productController.updateProduct);
 
-router.delete("/:id", productController.deleteProduct);
+// DELETE /api/products/:slug
+router.delete("/:slug", productController.deleteProduct);
 
 module.exports = router;

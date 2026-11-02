@@ -1,647 +1,379 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import axios from "axios";
+import { computed, ref, watch } from "vue";
+import { api, errorMessage, isNotFound } from "@/api/client";
+import AppIcon from "@/components/AppIcon.vue";
+import ProductCard from "@/components/ProductCard.vue";
+import ProductImage from "@/components/ProductImage.vue";
+import StateMessage from "@/components/StateMessage.vue";
+import { useCategories } from "@/composables/useCategories";
+import type { Product } from "@/types";
+import {
+    discountPercent,
+    formatPrice,
+    formatSpecValue,
+    humanizeKey,
+} from "@/utils/format";
 
-interface Product {
-    _id: string;
-    name: string;
-    slug: string;
-    category: string;
-    brand: string;
-    sku: string;
-    description: string;
-    shortDescription: string;
-    price: number;
-    oldPrice: number | null;
-    stock: number;
-    images: string[];
-    specifications: Record<string, any>;
-    rating: number;
-    reviewCount: number;
-    featured: boolean;
-    bestSeller: boolean;
-    isNew: boolean;
-    active: boolean;
-}
+const props = defineProps<{ slug: string }>();
 
-const route = useRoute();
-const router = useRouter();
+const { nameOf } = useCategories();
 
 const product = ref<Product | null>(null);
-const relatedProducts = ref<Product[]>([]);
-const activeImage = ref<string>("");
+const related = ref<Product[]>([]);
+const activeIndex = ref(0);
+const loading = ref(true);
+const notFound = ref(false);
+const error = ref<string | null>(null);
+const cartNotice = ref(false);
+let requestId = 0;
 
-// UI States
-const isLoading = ref(true);
-const hasError = ref(false);
-const errorMessage = ref("");
+async function load() {
+    const id = ++requestId;
+    loading.value = true;
+    notFound.value = false;
+    error.value = null;
+    cartNotice.value = false;
+    activeIndex.value = 0;
+    related.value = [];
 
-const API_BASE_URL = "http://localhost:3000/api";
-const PLACEHOLDER_IMG =
-    "https://placehold.co/800x800/f3f4f6/a1a1aa?text=No+Image";
-
-// Computed properties for UI logic
-const discountPercentage = computed(() => {
-    if (
-        product.value?.oldPrice &&
-        product.value.price < product.value.oldPrice
-    ) {
-        return Math.round(
-            ((product.value.oldPrice - product.value.price) /
-                product.value.oldPrice) *
-                100,
-        );
+    try {
+        const data = await api.getProduct(props.slug);
+        if (id !== requestId) return;
+        product.value = data;
+        document.title = `${data.name} · Project-04`;
+        void loadRelated(data, id);
+    } catch (e) {
+        if (id !== requestId) return;
+        product.value = null;
+        if (isNotFound(e)) notFound.value = true;
+        else error.value = errorMessage(e);
+    } finally {
+        if (id === requestId) loading.value = false;
     }
-    return 0;
+}
+
+// Produits de la même catégorie ; la section est masquée s'il n'y en a pas
+async function loadRelated(current: Product, id: number) {
+    try {
+        const data = await api.getProducts({
+            category: current.category,
+            limit: 5,
+        });
+        if (id === requestId) {
+            related.value = data.filter((p) => p._id !== current._id).slice(0, 4);
+        }
+    } catch {
+        // Non bloquant : on n'affiche simplement pas de suggestions
+    }
+}
+
+// Se recharge aussi quand on clique sur un produit similaire
+watch(() => props.slug, load, { immediate: true });
+
+const images = computed(() => product.value?.images?.filter(Boolean) ?? []);
+const activeImage = computed(() => images.value[activeIndex.value]);
+
+const discount = computed(() =>
+    product.value ? discountPercent(product.value.price, product.value.oldPrice) : 0,
+);
+
+const stockInfo = computed(() => {
+    const stock = product.value?.stock ?? 0;
+    if (stock <= 0) return { label: "Rupture de stock", tone: "text-rose-400", dot: "bg-rose-400" };
+    if (stock <= 5)
+        return {
+            label: `Plus que ${stock} en stock`,
+            tone: "text-amber-400",
+            dot: "bg-amber-400",
+        };
+    return { label: "En stock", tone: "text-emerald-400", dot: "bg-emerald-400" };
 });
 
-const isOutOfStock = computed(() => (product.value?.stock || 0) <= 0);
+const specs = computed(() =>
+    Object.entries(product.value?.specifications ?? {}).map(([key, value]) => ({
+        key,
+        label: humanizeKey(key),
+        value: formatSpecValue(value),
+    })),
+);
 
-// Main fetch function
-const fetchProduct = async () => {
-    try {
-        isLoading.value = true;
-        const response = await axios.get<Product>(
-            `${API_BASE_URL}/products/${route.params.slug}`,
-        );
-
-        product.value = response.data;
-        activeImage.value = response.data.images?.[0] || PLACEHOLDER_IMG;
-
-        await fetchRelatedProducts(response.data.category, response.data._id);
-    } catch (error: any) {
-        hasError.value = true;
-        errorMessage.value =
-            error.response?.status === 404
-                ? "Ce produit est introuvable."
-                : "Une erreur est survenue lors du chargement du produit.";
-    } finally {
-        isLoading.value = false;
-    }
-};
-
-// Fetch recommendations
-const fetchRelatedProducts = async (category: string, currentId: string) => {
-    try {
-        const response = await axios.get<Product[]>(
-            `${API_BASE_URL}/products?category=${category}&limit=5`,
-        );
-        const filtered = response.data
-            .filter((p) => p._id !== currentId)
-            .slice(0, 4);
-
-        // If API returns empty, use mock data so the UI section is still visible
-        if (filtered.length === 0) {
-            loadMockRecommendations();
-        } else {
-            relatedProducts.value = filtered;
-        }
-    } catch (error) {
-        loadMockRecommendations(); // Fallback on error
-    }
-};
-
-// Fallback data to ensure the UI design is always visible
-const loadMockRecommendations = () => {
-    relatedProducts.value = [
-        {
-            _id: "1",
-            name: "Produit Similaire Alpha",
-            brand: "Marque X",
-            price: 129.99,
-            images: [
-                "https://placehold.co/400x400/f8fafc/a1a1aa?text=Produit+1",
-            ],
-            slug: "alpha",
-        } as Product,
-        {
-            _id: "2",
-            name: "Accessoire Compatible",
-            brand: "Marque Y",
-            price: 49.99,
-            oldPrice: 59.99,
-            images: [
-                "https://placehold.co/400x400/f8fafc/a1a1aa?text=Produit+2",
-            ],
-            slug: "accessoire",
-        } as Product,
-        {
-            _id: "3",
-            name: "Version Premium Pro",
-            brand: "Marque X",
-            price: 299.99,
-            images: [
-                "https://placehold.co/400x400/f8fafc/a1a1aa?text=Produit+3",
-            ],
-            slug: "premium",
-        } as Product,
-        {
-            _id: "4",
-            name: "Produit Alternatif",
-            brand: "Marque Z",
-            price: 89.0,
-            images: [
-                "https://placehold.co/400x400/f8fafc/a1a1aa?text=Produit+4",
-            ],
-            slug: "alternatif",
-        } as Product,
-    ];
-};
-
-onMounted(() => {
-    fetchProduct();
+const summary = computed(() => {
+    const p = product.value;
+    if (!p) return "";
+    if (p.shortDescription) return p.shortDescription;
+    if (p.description.length <= 180) return p.description;
+    return `${p.description.slice(0, 180).trimEnd()}…`;
 });
 </script>
 
 <template>
-    <div
-        class="min-h-screen bg-gray-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500 selection:text-white"
-    >
-        <!-- Loading State -->
-        <div v-if="isLoading" class="flex justify-center items-center h-screen">
-            <div
-                class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"
-            ></div>
-        </div>
-
-        <!-- Error State -->
-        <div
-            v-else-if="hasError"
-            class="min-h-screen flex items-center justify-center"
-        >
-            <div
-                class="max-w-md text-center p-8 bg-white dark:bg-zinc-900 rounded-3xl shadow-xl"
-            >
-                <div class="text-red-500 mb-6 flex justify-center">
-                    <svg
-                        class="w-16 h-16"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="1.5"
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                        />
-                    </svg>
+    <div>
+        <!-- Chargement -->
+        <div v-if="loading && !product" class="container-page py-12" aria-busy="true">
+            <div class="skeleton mb-8 h-4 w-64" />
+            <div class="grid gap-10 lg:grid-cols-12">
+                <div class="skeleton aspect-[4/3] rounded-3xl lg:col-span-7" />
+                <div class="space-y-4 lg:col-span-5">
+                    <div class="skeleton h-4 w-24" />
+                    <div class="skeleton h-10 w-full" />
+                    <div class="skeleton h-10 w-3/4" />
+                    <div class="skeleton mt-8 h-48 w-full rounded-3xl" />
                 </div>
-                <h2
-                    class="text-3xl font-bold text-gray-900 dark:text-white mb-4"
-                >
-                    Oups !
-                </h2>
-                <p class="text-gray-500 dark:text-zinc-400 mb-8">
-                    {{ errorMessage }}
-                </p>
-                <button
-                    @click="router.push('/')"
-                    class="w-full py-4 rounded-2xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-colors"
-                >
-                    Retour à l'accueil
-                </button>
             </div>
         </div>
 
-        <!-- Main Content -->
-        <div v-else-if="product">
-            <!-- Top Section: Product Details -->
-            <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16">
-                <!-- Breadcrumb -->
-                <nav
-                    class="flex text-sm text-gray-500 dark:text-zinc-400 mb-10 font-medium"
+        <!-- Introuvable / erreur -->
+        <div v-else-if="notFound" class="container-page py-24">
+            <StateMessage
+                icon="warning"
+                title="Produit introuvable"
+                message="Ce produit n'existe pas ou n'est plus disponible."
+            >
+                <RouterLink to="/products" class="btn btn-primary"
+                    >Parcourir le catalogue</RouterLink
                 >
-                    <ol class="flex items-center space-x-3">
+            </StateMessage>
+        </div>
+
+        <div v-else-if="error" class="container-page py-24">
+            <StateMessage
+                tone="error"
+                icon="warning"
+                title="Impossible de charger ce produit"
+                :message="error"
+            >
+                <button class="btn btn-ghost" @click="load">
+                    <AppIcon name="refresh" class="h-4 w-4" /> Réessayer
+                </button>
+            </StateMessage>
+        </div>
+
+        <!-- Fiche produit -->
+        <div v-else-if="product" :class="{ 'opacity-60 transition-opacity': loading }">
+            <div class="container-page py-10 lg:py-14">
+                <nav aria-label="Fil d'Ariane" class="mb-8 text-sm text-zinc-500">
+                    <ol class="flex flex-wrap items-center gap-1.5">
                         <li>
-                            <router-link
-                                to="/"
-                                class="hover:text-indigo-600 transition-colors"
-                                >Accueil</router-link
+                            <RouterLink to="/products" class="hover:text-zinc-300"
+                                >Catalogue</RouterLink
                             >
                         </li>
+                        <li><AppIcon name="chevronRight" class="h-3.5 w-3.5" /></li>
                         <li>
-                            <svg
-                                class="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M9 5l7 7-7 7"
-                                />
-                            </svg>
-                        </li>
-                        <li>
-                            <span
-                                class="hover:text-indigo-600 cursor-pointer transition-colors"
-                                >{{ product.category }}</span
+                            <RouterLink
+                                :to="{
+                                    name: 'products',
+                                    params: { category: product.category },
+                                }"
+                                class="hover:text-zinc-300"
+                                >{{ nameOf(product.category) }}</RouterLink
                             >
                         </li>
-                        <li>
-                            <svg
-                                class="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M9 5l7 7-7 7"
-                                />
-                            </svg>
-                        </li>
+                        <li><AppIcon name="chevronRight" class="h-3.5 w-3.5" /></li>
                         <li
-                            class="text-gray-900 dark:text-zinc-100 truncate max-w-[150px] sm:max-w-none"
+                            class="max-w-[16rem] truncate text-zinc-300"
+                            aria-current="page"
                         >
                             {{ product.name }}
                         </li>
                     </ol>
                 </nav>
 
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16">
-                    <!-- Left Column: Gallery -->
-                    <div class="lg:col-span-7 flex flex-col gap-6">
-                        <!-- Main Image -->
+                <div class="grid gap-10 lg:grid-cols-12 lg:gap-14">
+                    <!-- Galerie -->
+                    <div class="flex flex-col gap-4 lg:col-span-7">
                         <div
-                            class="relative bg-white dark:bg-zinc-900 rounded-[2rem] p-6 shadow-sm border border-gray-100 dark:border-zinc-800 aspect-[4/3] flex items-center justify-center group overflow-hidden"
+                            class="relative aspect-[4/3] overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900 p-8"
                         >
-                            <div
-                                class="absolute top-6 left-6 flex flex-col gap-2 z-10"
-                            >
+                            <div class="absolute left-5 top-5 z-10 flex flex-col items-start gap-2">
                                 <span
-                                    v-if="product.isNew"
-                                    class="bg-indigo-600 text-white text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wider"
+                                    v-if="discount > 0"
+                                    class="rounded-full bg-rose-500 px-3 py-1 text-xs font-bold text-white"
+                                    >-{{ discount }}%</span
+                                >
+                                <span
+                                    v-if="product.newArrival"
+                                    class="rounded-full bg-indigo-500 px-3 py-1 text-xs font-semibold text-white"
                                     >Nouveau</span
                                 >
                                 <span
                                     v-if="product.bestSeller"
-                                    class="bg-amber-500 text-white text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wider"
-                                    >Meilleure Vente</span
-                                >
-                                <span
-                                    v-if="discountPercentage > 0"
-                                    class="bg-rose-500 text-white text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wider"
-                                    >-{{ discountPercentage }}%</span
+                                    class="rounded-full bg-amber-500 px-3 py-1 text-xs font-semibold text-zinc-950"
+                                    >Best-seller</span
                                 >
                             </div>
-                            <img
-                                :src="activeImage"
-                                :alt="product.name"
-                                class="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
-                            />
+                            <ProductImage :src="activeImage" :alt="product.name" />
                         </div>
 
-                        <!-- Thumbnails -->
                         <div
-                            v-if="product.images && product.images.length > 1"
-                            class="grid grid-cols-4 sm:grid-cols-6 gap-4"
+                            v-if="images.length > 1"
+                            class="grid grid-cols-5 gap-3 sm:grid-cols-6"
+                            role="group"
+                            aria-label="Images du produit"
                         >
                             <button
-                                v-for="(img, index) in product.images"
-                                :key="index"
-                                @click="activeImage = img"
-                                class="relative rounded-2xl overflow-hidden aspect-square border-2 transition-all duration-200 bg-white dark:bg-zinc-900"
+                                v-for="(img, index) in images"
+                                :key="img"
+                                type="button"
+                                class="aspect-square overflow-hidden rounded-xl border-2 bg-zinc-900 p-1.5 transition"
                                 :class="
-                                    activeImage === img
-                                        ? 'border-indigo-600 ring-4 ring-indigo-100 dark:ring-indigo-900/30'
-                                        : 'border-transparent hover:border-gray-300 dark:hover:border-zinc-700 shadow-sm'
+                                    index === activeIndex
+                                        ? 'border-indigo-500'
+                                        : 'border-zinc-800 hover:border-zinc-600'
                                 "
+                                :aria-label="`Image ${index + 1}`"
+                                :aria-pressed="index === activeIndex"
+                                @click="activeIndex = index"
                             >
-                                <img
-                                    :src="img"
-                                    alt="Thumbnail"
-                                    class="w-full h-full object-cover p-2"
-                                />
+                                <ProductImage :src="img" alt="" />
                             </button>
                         </div>
                     </div>
 
-                    <!-- Right Column: Info (Sticky on scroll) -->
-                    <div class="lg:col-span-5 relative">
-                        <div class="sticky top-10 flex flex-col gap-8">
-                            <!-- Header Info -->
+                    <!-- Infos & achat -->
+                    <div class="lg:col-span-5">
+                        <div class="flex flex-col gap-6 lg:sticky lg:top-24">
                             <div>
                                 <p
-                                    class="text-indigo-600 dark:text-indigo-400 font-bold tracking-widest uppercase text-sm mb-3"
+                                    class="text-sm font-semibold uppercase tracking-wider text-indigo-400"
                                 >
                                     {{ product.brand }}
                                 </p>
                                 <h1
-                                    class="text-4xl sm:text-5xl font-extrabold text-gray-900 dark:text-white leading-tight tracking-tight mb-4"
+                                    class="mt-2 text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl"
                                 >
                                     {{ product.name }}
                                 </h1>
-
-                                <div class="flex items-center gap-4 text-sm">
-                                    <div
-                                        v-if="product.reviewCount > 0"
-                                        class="flex items-center text-amber-500 bg-amber-50 dark:bg-amber-500/10 px-3 py-1 rounded-full"
-                                    >
-                                        <svg
-                                            class="w-4 h-4 fill-current"
-                                            viewBox="0 0 20 20"
-                                        >
-                                            <path
-                                                d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"
-                                            />
-                                        </svg>
-                                        <span
-                                            class="ml-2 font-bold text-amber-600 dark:text-amber-400"
-                                            >{{ product.rating }}
-                                            <span
-                                                class="font-medium text-amber-600/70"
-                                                >({{
-                                                    product.reviewCount
-                                                }})</span
-                                            ></span
-                                        >
-                                    </div>
-                                    <span
-                                        class="text-gray-400 dark:text-zinc-500 font-mono text-xs"
-                                        >SKU: {{ product.sku }}</span
+                                <div
+                                    class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-400"
+                                >
+                                    <span v-if="product.reviewCount > 0" class="flex items-center gap-1">
+                                        <span class="text-amber-400" aria-hidden="true">★</span>
+                                        <span class="font-medium text-zinc-200">{{
+                                            product.rating.toFixed(1)
+                                        }}</span>
+                                        ({{ product.reviewCount }} avis)
+                                    </span>
+                                    <span v-if="product.sku" class="font-mono text-xs text-zinc-500"
+                                        >Réf. {{ product.sku }}</span
                                     >
                                 </div>
                             </div>
 
-                            <!-- Price Card -->
-                            <div
-                                class="bg-white dark:bg-zinc-900 rounded-[2rem] p-8 shadow-sm border border-gray-100 dark:border-zinc-800"
-                            >
-                                <div class="flex items-end gap-4 mb-4">
-                                    <span
-                                        class="text-5xl font-black text-gray-900 dark:text-white"
-                                        >{{ product.price.toFixed(2) }} €</span
-                                    >
-                                    <span
-                                        v-if="product.oldPrice"
-                                        class="text-xl text-gray-400 line-through mb-1.5"
-                                        >{{
-                                            product.oldPrice.toFixed(2)
-                                        }}
-                                        €</span
-                                    >
-                                </div>
+                            <p v-if="summary" class="leading-relaxed text-zinc-400">
+                                {{ summary }}
+                            </p>
 
-                                <div class="flex items-center gap-2 mb-8">
-                                    <div class="relative flex h-3 w-3">
-                                        <span
-                                            v-if="!isOutOfStock"
-                                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
-                                        ></span>
-                                        <span
-                                            class="relative inline-flex rounded-full h-3 w-3"
-                                            :class="
-                                                isOutOfStock
-                                                    ? 'bg-red-500'
-                                                    : 'bg-emerald-500'
-                                            "
-                                        ></span>
-                                    </div>
+                            <div class="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6">
+                                <div class="flex flex-wrap items-baseline gap-3">
+                                    <span class="text-4xl font-bold text-white">{{
+                                        formatPrice(product.price)
+                                    }}</span>
                                     <span
-                                        class="text-sm font-semibold uppercase tracking-wider"
-                                        :class="
-                                            isOutOfStock
-                                                ? 'text-red-500'
-                                                : 'text-emerald-600 dark:text-emerald-400'
-                                        "
+                                        v-if="discount > 0"
+                                        class="text-lg text-zinc-500 line-through"
+                                        >{{ formatPrice(product.oldPrice) }}</span
                                     >
-                                        {{
-                                            isOutOfStock
-                                                ? "Rupture de stock"
-                                                : "En stock prêt à expédier"
-                                        }}
-                                    </span>
                                 </div>
+                                <p class="mt-1 text-xs text-zinc-500">TTC</p>
+
+                                <p
+                                    class="mt-5 flex items-center gap-2 text-sm font-medium"
+                                    :class="stockInfo.tone"
+                                >
+                                    <span class="h-2 w-2 rounded-full" :class="stockInfo.dot" />
+                                    {{ stockInfo.label }}
+                                </p>
 
                                 <button
-                                    :disabled="isOutOfStock"
-                                    class="w-full flex items-center justify-center gap-3 py-5 rounded-2xl font-bold text-lg transition-all duration-300"
-                                    :class="
-                                        isOutOfStock
-                                            ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-not-allowed'
-                                            : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-xl hover:shadow-indigo-600/30 hover:-translate-y-1'
-                                    "
+                                    type="button"
+                                    class="btn btn-primary mt-6 w-full py-4 text-base"
+                                    :disabled="product.stock <= 0"
+                                    @click="cartNotice = true"
                                 >
-                                    <svg
-                                        v-if="!isOutOfStock"
-                                        class="w-6 h-6"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2.5"
-                                            d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
-                                        />
-                                    </svg>
-                                    {{
-                                        isOutOfStock
-                                            ? "Indisponible"
-                                            : "Ajouter au panier"
-                                    }}
+                                    <AppIcon name="bag" class="h-5 w-5" />
+                                    {{ product.stock > 0 ? "Ajouter au panier" : "Indisponible" }}
                                 </button>
-                            </div>
-
-                            <!-- Short Description -->
-                            <div
-                                class="prose prose-indigo dark:prose-invert text-gray-600 dark:text-zinc-400"
-                            >
-                                <p>
-                                    {{
-                                        product.shortDescription ||
-                                        product.description.substring(0, 150) +
-                                            "..."
-                                    }}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Full Description & Specs -->
-                <div class="mt-24 grid lg:grid-cols-12 gap-12 lg:gap-16">
-                    <div class="lg:col-span-7 space-y-8">
-                        <h2
-                            class="text-3xl font-bold text-gray-900 dark:text-white"
-                        >
-                            À propos de ce produit
-                        </h2>
-                        <div
-                            class="text-gray-600 dark:text-zinc-400 leading-relaxed space-y-4 text-lg"
-                        >
-                            <p>{{ product.description }}</p>
-                        </div>
-                    </div>
-
-                    <div
-                        v-if="
-                            product.specifications &&
-                            Object.keys(product.specifications).length > 0
-                        "
-                        class="lg:col-span-5"
-                    >
-                        <div
-                            class="bg-white dark:bg-zinc-900 rounded-[2rem] p-8 shadow-sm border border-gray-100 dark:border-zinc-800"
-                        >
-                            <h3
-                                class="text-2xl font-bold text-gray-900 dark:text-white mb-6"
-                            >
-                                Caractéristiques
-                            </h3>
-                            <ul
-                                class="divide-y divide-gray-100 dark:divide-zinc-800"
-                            >
-                                <li
-                                    v-for="(
-                                        value, key
-                                    ) in product.specifications"
-                                    :key="key"
-                                    class="py-4 flex justify-between gap-4"
-                                >
-                                    <span
-                                        class="text-gray-500 dark:text-zinc-400 capitalize font-medium"
-                                        >{{ key }}</span
-                                    >
-                                    <span
-                                        class="text-gray-900 dark:text-white text-right font-semibold"
-                                        >{{ value }}</span
-                                    >
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </main>
-
-            <!-- BOTTOM SECTION: Product Recommendations -->
-            <section
-                class="mt-20 border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 w-full py-24"
-            >
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div class="flex items-end justify-between mb-12">
-                        <div>
-                            <h2
-                                class="text-3xl md:text-4xl font-extrabold text-gray-900 dark:text-white tracking-tight"
-                            >
-                                Complétez votre style
-                            </h2>
-                            <p
-                                class="mt-3 text-lg text-gray-500 dark:text-zinc-400"
-                            >
-                                Produits fréquemment achetés ensemble
-                            </p>
-                        </div>
-                        <router-link
-                            :to="`/category/${product.category}`"
-                            class="hidden md:flex items-center gap-2 text-indigo-600 font-bold hover:text-indigo-700 transition-colors group"
-                        >
-                            Voir la collection
-                            <svg
-                                class="w-5 h-5 transform group-hover:translate-x-1 transition-transform"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M17 8l4 4m0 0l-4 4m4-4H3"
-                                />
-                            </svg>
-                        </router-link>
-                    </div>
-
-                    <div
-                        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"
-                    >
-                        <router-link
-                            v-for="item in relatedProducts"
-                            :key="item._id"
-                            :to="`/product/${item.slug}`"
-                            class="group block relative"
-                        >
-                            <!-- Card Image -->
-                            <div
-                                class="relative bg-gray-50 dark:bg-zinc-950 rounded-[2rem] overflow-hidden aspect-[4/5] mb-6 border border-gray-100 dark:border-zinc-800 transition-all duration-300 group-hover:shadow-2xl group-hover:-translate-y-2"
-                            >
-                                <img
-                                    :src="item.images?.[0] || PLACEHOLDER_IMG"
-                                    :alt="item.name"
-                                    class="w-full h-full object-contain p-6 mix-blend-multiply dark:mix-blend-normal transition-transform duration-700 group-hover:scale-110"
-                                />
-
-                                <!-- Quick add button (UI only) -->
-                                <div
-                                    class="absolute bottom-4 right-4 translate-y-12 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300"
-                                >
-                                    <button
-                                        class="bg-indigo-600 text-white p-3 rounded-xl shadow-lg hover:bg-indigo-700 transition-colors"
-                                        @click.prevent
-                                    >
-                                        <svg
-                                            class="w-5 h-5"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                        >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                                            />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Card Info -->
-                            <div>
                                 <p
-                                    class="text-sm text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-wider mb-2"
+                                    v-if="cartNotice"
+                                    class="mt-3 rounded-xl bg-zinc-800/80 px-4 py-3 text-sm text-zinc-300"
+                                    role="status"
                                 >
-                                    {{ item.brand }}
+                                    Le panier n'est pas encore disponible : il arrive très bientôt.
                                 </p>
-                                <h3
-                                    class="text-lg font-bold text-gray-900 dark:text-white mb-2 truncate group-hover:text-indigo-600 transition-colors"
-                                >
-                                    {{ item.name }}
-                                </h3>
-                                <div class="flex items-center gap-3">
-                                    <p
-                                        class="text-xl font-extrabold text-gray-900 dark:text-white"
-                                    >
-                                        {{ item.price.toFixed(2) }} €
-                                    </p>
-                                    <p
-                                        v-if="item.oldPrice"
-                                        class="text-sm text-gray-400 line-through"
-                                    >
-                                        {{ item.oldPrice.toFixed(2) }} €
-                                    </p>
-                                </div>
                             </div>
-                        </router-link>
-                    </div>
 
-                    <!-- Mobile view all button -->
-                    <div class="mt-10 md:hidden flex justify-center">
-                        <router-link
-                            :to="`/category/${product.category}`"
-                            class="px-8 py-4 bg-gray-100 dark:bg-zinc-800 rounded-xl font-bold text-gray-900 dark:text-white hover:bg-gray-200 transition-colors w-full text-center"
+                            <!-- Aperçu des caractéristiques -->
+                            <dl
+                                v-if="specs.length"
+                                class="grid grid-cols-2 gap-3"
+                            >
+                                <div
+                                    v-for="spec in specs.slice(0, 4)"
+                                    :key="spec.key"
+                                    class="rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3"
+                                >
+                                    <dt class="text-xs text-zinc-500">{{ spec.label }}</dt>
+                                    <dd class="mt-0.5 truncate font-semibold text-zinc-100">
+                                        {{ spec.value }}
+                                    </dd>
+                                </div>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Description & fiche technique -->
+                <div class="mt-20 grid gap-10 lg:grid-cols-12 lg:gap-14">
+                    <section class="lg:col-span-7">
+                        <h2 class="text-2xl font-bold text-white">Description</h2>
+                        <p
+                            v-if="product.description"
+                            class="mt-4 whitespace-pre-line leading-relaxed text-zinc-400"
                         >
-                            Voir toute la collection
-                        </router-link>
+                            {{ product.description }}
+                        </p>
+                        <p v-else class="mt-4 text-zinc-500">
+                            Aucune description n'est disponible pour ce produit.
+                        </p>
+                    </section>
+
+                    <section v-if="specs.length" class="lg:col-span-5">
+                        <h2 class="text-2xl font-bold text-white">Fiche technique</h2>
+                        <dl
+                            class="mt-4 divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800"
+                        >
+                            <div
+                                v-for="spec in specs"
+                                :key="spec.key"
+                                class="flex justify-between gap-6 bg-zinc-900/40 px-5 py-3.5 text-sm odd:bg-zinc-900/70"
+                            >
+                                <dt class="text-zinc-400">{{ spec.label }}</dt>
+                                <dd class="text-right font-medium text-zinc-100">
+                                    {{ spec.value }}
+                                </dd>
+                            </div>
+                        </dl>
+                    </section>
+                </div>
+            </div>
+
+            <!-- Produits similaires -->
+            <section v-if="related.length" class="border-t border-zinc-800/80 bg-zinc-900/30 py-16">
+                <div class="container-page">
+                    <div class="mb-8 flex items-end justify-between gap-4">
+                        <h2 class="text-2xl font-bold text-white">
+                            Dans la même catégorie
+                        </h2>
+                        <RouterLink
+                            :to="{ name: 'products', params: { category: product.category } }"
+                            class="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-indigo-400 hover:text-indigo-300"
+                        >
+                            Tout voir <AppIcon name="arrowRight" class="h-4 w-4" />
+                        </RouterLink>
+                    </div>
+                    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                        <ProductCard v-for="p in related" :key="p._id" :product="p" />
                     </div>
                 </div>
             </section>

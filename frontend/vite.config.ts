@@ -13,4 +13,10 @@ export default defineConfig({
             "@": fileURLToPath(new URL("./src", import.meta.url)),
         },
     },
+    server: {
+        // En dev, Vite transmet /api au backend local (en prod, c'est nginx)
+        proxy: {
+            "/api": "http://localhost:3000",
+        },
+    },
 });

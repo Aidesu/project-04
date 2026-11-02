@@ -1,10 +1,25 @@
 const Category = require("../models/Category");
+const Product = require("../models/Product");
 
+// GET /api/categories : chaque catégorie avec son nombre de produits
+// (Product.category contient le slug de la catégorie)
 exports.getCategories = async (req, res) => {
     try {
-        const categories = await Category.find();
+        const [categories, counts] = await Promise.all([
+            Category.find().sort({ name: 1 }).lean(),
+            Product.aggregate([
+                { $group: { _id: "$category", count: { $sum: 1 } } },
+            ]),
+        ]);
 
-        res.json(categories);
+        const countBySlug = new Map(counts.map((c) => [c._id, c.count]));
+
+        res.json(
+            categories.map((category) => ({
+                ...category,
+                itemCount: countBySlug.get(category.slug) || 0,
+            })),
+        );
     } catch (err) {
         res.status(500).json({
             message: err.message,

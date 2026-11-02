@@ -1,10 +1,30 @@
 const Product = require("../models/Product");
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// GET /api/products?category=&search=&limit=
 exports.getProducts = async (req, res) => {
     try {
-        const { category } = req.query;
-        const filter = category ? { category: category } : {};
-        const products = await Product.find(filter);
+        const { category, search, limit } = req.query;
+        const filter = {};
+
+        if (typeof category === "string" && category) {
+            filter.category = category;
+        }
+
+        if (typeof search === "string" && search.trim()) {
+            const pattern = new RegExp(escapeRegex(search.trim()), "i");
+            filter.$or = [{ name: pattern }, { brand: pattern }];
+        }
+
+        const query = Product.find(filter).sort({ createdAt: -1 });
+
+        const max = Number.parseInt(limit, 10);
+        if (Number.isInteger(max) && max > 0) {
+            query.limit(Math.min(max, 100));
+        }
+
+        const products = await query;
 
         res.json(products);
     } catch (err) {

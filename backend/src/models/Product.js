@@ -85,7 +85,8 @@ const productSchema = new mongoose.Schema(
             default: false,
         },
 
-        isNew: {
+        // "isNew" est réservé par Mongoose (casse les timestamps), d'où ce nom
+        newArrival: {
             type: Boolean,
             default: false,
         },
